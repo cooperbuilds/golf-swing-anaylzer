@@ -26,12 +26,12 @@ export function extractMeasurements(
   measurements.push(rotationDelta(address, top, 'shoulder_turn', 'Shoulder turn', 'Top', cameraView, cameraConfidence, LANDMARK.leftShoulder, LANDMARK.rightShoulder))
   measurements.push(rotationDelta(address, top, 'hip_turn', 'Hip turn', 'Top', cameraView, cameraConfidence, LANDMARK.leftHip, LANDMARK.rightHip))
   measurements.push(rotationDelta(top, impact, 'pelvis_rotation', 'Pelvis rotation through impact', 'Impact', cameraView, cameraConfidence, LANDMARK.leftHip, LANDMARK.rightHip))
-  measurements.push(headMovement(frames, address))
-  measurements.push(handPath(frames, address))
+  measurements.push(headMovement(frames, address, impact))
+  measurements.push(handPath(frames, address, finish))
   measurements.push(tempo(phases))
   measurements.push(...phaseTiming(phases))
   measurements.push(sequencing(frames, phases))
-  measurements.push(balance(finish))
+  measurements.push(balance(finish, cameraView))
   measurements.push(earlyExtension(address, impact, cameraView, cameraConfidence))
   measurements.push(armAngle(top, handedness, 'lead'))
   measurements.push(armAngle(impact, handedness, 'trail'))
@@ -91,12 +91,14 @@ function rotationDelta(
   return measured(key, label, phase, angularDifference(initial, final), 'deg', confidence * 0.82, after.timeMs, 'MediaPipe world-landmark horizontal plane', 'Monocular world depth is estimated, so rotation confidence is capped.')
 }
 
-function headMovement(frames: PoseFrame[], address: PoseFrame): Measurement {
+function headMovement(frames: PoseFrame[], address: PoseFrame, impact: PoseFrame): Measurement {
   const baseline = address.landmarks[LANDMARK.nose]
   const scale = torsoLength(address, LANDMARK.leftShoulder, LANDMARK.rightShoulder, LANDMARK.leftHip, LANDMARK.rightHip)
-  const valid = frames.filter((frame) => frame.landmarks[LANDMARK.nose].visibility >= REQUIRED_VISIBILITY)
-  const confidence = valid.length / Math.max(frames.length, 1) * mean(valid.map((frame) => frame.landmarks[LANDMARK.nose].visibility))
-  if (confidence < 0.5) return unavailable('head_movement', 'Head movement', 'Whole swing', 'The head is occluded for too much of the swing.', confidence)
+  const window = frames.filter((frame) => frame.timeMs >= address.timeMs && frame.timeMs <= impact.timeMs)
+  const valid = window.filter((frame) => frame.landmarks[LANDMARK.nose].visibility >= REQUIRED_VISIBILITY)
+  const temporalCoverage = valid.length / Math.max(window.length, 1)
+  const confidence = temporalCoverage * mean(valid.map((frame) => frame.landmarks[LANDMARK.nose].visibility))
+  if (confidence < 0.5) return unavailable('head_movement', 'Head movement through impact', 'Whole swing', 'The head is occluded for too much of the address-to-impact window.', confidence)
   let maximum = 0
   let frameMs = address.timeMs
   for (const frame of valid) {
@@ -106,20 +108,21 @@ function headMovement(frames: PoseFrame[], address: PoseFrame): Measurement {
       frameMs = frame.timeMs
     }
   }
-  return measured('head_movement', 'Maximum head movement', 'Whole swing', maximum, 'torso-lengths', confidence, frameMs, '2D nose displacement normalized by torso length', undefined, support(valid.length, valid.length / Math.max(frames.length, 1), mean(valid.map((frame) => frame.landmarks[LANDMARK.nose].visibility))))
+  return measured('head_movement', 'Maximum head movement through impact', 'Whole swing', maximum, 'torso-lengths', confidence, frameMs, 'Address-to-impact 2D nose displacement normalized by torso length', 'Follow-through and post-swing motion are excluded so they cannot create this finding.', support(valid.length, temporalCoverage, mean(valid.map((frame) => frame.landmarks[LANDMARK.nose].visibility))))
 }
 
-function handPath(frames: PoseFrame[], address: PoseFrame): Measurement {
+function handPath(frames: PoseFrame[], address: PoseFrame, finish: PoseFrame): Measurement {
   const scale = torsoLength(address, LANDMARK.leftShoulder, LANDMARK.rightShoulder, LANDMARK.leftHip, LANDMARK.rightHip)
+  const window = frames.filter((frame) => frame.timeMs >= address.timeMs && frame.timeMs <= finish.timeMs)
   const path: number[] = []
-  for (let index = 1; index < frames.length; index += 1) {
-    const a = midpoint(frames[index - 1].landmarks[LANDMARK.leftWrist], frames[index - 1].landmarks[LANDMARK.rightWrist])
-    const b = midpoint(frames[index].landmarks[LANDMARK.leftWrist], frames[index].landmarks[LANDMARK.rightWrist])
+  for (let index = 1; index < window.length; index += 1) {
+    const a = midpoint(window[index - 1].landmarks[LANDMARK.leftWrist], window[index - 1].landmarks[LANDMARK.rightWrist])
+    const b = midpoint(window[index].landmarks[LANDMARK.leftWrist], window[index].landmarks[LANDMARK.rightWrist])
     path.push(distance(a, b) / scale)
   }
-  const confidence = mean(frames.map((frame) => Math.min(frame.landmarks[LANDMARK.leftWrist].visibility, frame.landmarks[LANDMARK.rightWrist].visibility)))
+  const confidence = mean(window.map((frame) => Math.min(frame.landmarks[LANDMARK.leftWrist].visibility, frame.landmarks[LANDMARK.rightWrist].visibility)))
   if (confidence < 0.52) return unavailable('hand_path', 'Hand-path length', 'Whole swing', 'The hands are occluded or blurred in too many frames.', confidence)
-  return measured('hand_path', 'Normalized hand-path length', 'Whole swing', path.reduce((total, value) => total + value, 0), 'torso-lengths', confidence, null, '2D wrist-center trajectory normalized by torso length')
+  return measured('hand_path', 'Normalized hand-path length', 'Whole swing', path.reduce((total, value) => total + value, 0), 'torso-lengths', confidence, null, 'Address-to-finish 2D wrist-center trajectory normalized by torso length')
 }
 
 function tempo(phases: PhaseSegment[]): Measurement {
@@ -162,20 +165,27 @@ function sequencing(frames: PoseFrame[], phases: PhaseSegment[]): Measurement {
   if (window.length < 6 || temporalCoverage < 0.68) return unavailable('sequence_gap', 'Pelvis-to-shoulder peak sequence', 'Downswing', 'Not enough visible world-landmark coverage exists during the downswing.')
   const hipAngles = window.map((frame) => horizontalPlaneAngle(frame.worldLandmarks![LANDMARK.leftHip], frame.worldLandmarks![LANDMARK.rightHip]))
   const shoulderAngles = window.map((frame) => horizontalPlaneAngle(frame.worldLandmarks![LANDMARK.leftShoulder], frame.worldLandmarks![LANDMARK.rightShoulder]))
-  const hipPeak = peakVelocityTime(window, hipAngles)
-  const shoulderPeak = peakVelocityTime(window, shoulderAngles)
+  const hipPeak = peakVelocity(window, hipAngles)
+  const shoulderPeak = peakVelocity(window, shoulderAngles)
   const landmarkVisibility = mean(window.flatMap((frame) => indices.map((index) => frame.worldLandmarks![index].visibility)))
-  const confidence = Math.min(landmarkVisibility, temporalCoverage) * 0.72
-  return measured('sequence_gap', 'Pelvis-to-shoulder peak sequence', 'Downswing', shoulderPeak - hipPeak, 'ms', confidence, shoulderPeak, 'Peak angular velocities from monocular world landmarks', 'Depth is model-estimated; use this as a sequencing indicator, not a lab-grade measurement.', support(window.length, temporalCoverage, landmarkVisibility))
+  const gap = shoulderPeak.timeMs - hipPeak.timeMs
+  const robustOrderMargin = hipPeak.earliestPlausibleMs - shoulderPeak.latestPlausibleMs
+  const peakSeparation = gap < -40 ? clamp(robustOrderMargin / 40) : 1
+  const confidence = Math.min(landmarkVisibility, temporalCoverage) * 0.72 * peakSeparation
+  const limitation = peakSeparation < 1
+    ? 'The shoulder and pelvis peak-speed windows overlap, so their order is not stable enough for a coaching conclusion.'
+    : 'Depth is model-estimated; use this as a sequencing indicator, not a lab-grade measurement.'
+  return measured('sequence_gap', 'Pelvis-to-shoulder peak sequence', 'Downswing', gap, 'ms', confidence, shoulderPeak.timeMs, 'Peak angular velocities from monocular world landmarks', limitation, support(window.length, temporalCoverage, landmarkVisibility))
 }
 
-function balance(frame: PoseFrame): Measurement {
+function balance(frame: PoseFrame, view: CameraView): Measurement {
   const hip = midpoint(frame.landmarks[LANDMARK.leftHip], frame.landmarks[LANDMARK.rightHip])
   const leftFoot = frame.landmarks[LANDMARK.leftFoot]
   const rightFoot = frame.landmarks[LANDMARK.rightFoot]
   const stance = Math.max(distance(leftFoot, rightFoot), 1e-6)
   const center = midpoint(leftFoot, rightFoot)
   const confidence = visibility(frame, [LANDMARK.leftHip, LANDMARK.rightHip, LANDMARK.leftFoot, LANDMARK.rightFoot])
+  if (view !== 'face-on') return unavailable('finish_balance', 'Finish balance', 'Finish', 'A centered-over-stance finish screen requires a face-on view.', confidence)
   if (confidence < REQUIRED_VISIBILITY) return unavailable('finish_balance', 'Finish balance', 'Finish', 'Feet or pelvis are not fully visible.', confidence)
   return measured('finish_balance', 'Pelvis offset from stance center', 'Finish', Math.abs(hip.x - center.x) / stance, 'normalized', confidence, frame.timeMs, '2D pelvis position relative to visible stance width', undefined, support(1, 1, confidence))
 }
@@ -220,18 +230,27 @@ function phase(phases: PhaseSegment[], name: PhaseName): PhaseSegment {
   return phases.find((item) => item.name === name) ?? phases[0]
 }
 
-function peakVelocityTime(frames: PoseFrame[], values: number[]): number {
-  let peak = 0
-  let peakTime = frames[0].timeMs
-  for (let index = 1; index < values.length; index += 1) {
+function peakVelocity(frames: PoseFrame[], values: number[]): { timeMs: number; earliestPlausibleMs: number; latestPlausibleMs: number } {
+  const speeds = values.map((value, index) => {
+    if (index === 0) return 0
     const elapsed = Math.max(frames[index].timeMs - frames[index - 1].timeMs, 1)
-    const speed = Math.abs(angularDifference(values[index - 1], values[index])) / elapsed
+    return Math.abs(angularDifference(values[index - 1], value)) / elapsed
+  })
+  let peak = 0
+  let peakIndex = 0
+  for (let index = 1; index < speeds.length; index += 1) {
+    const speed = speeds[index]
     if (speed > peak) {
       peak = speed
-      peakTime = frames[index].timeMs
+      peakIndex = index
     }
   }
-  return peakTime
+  const plausible = speeds.flatMap((speed, index) => speed >= peak * 0.85 ? [frames[index].timeMs] : [])
+  return {
+    timeMs: frames[peakIndex].timeMs,
+    earliestPlausibleMs: Math.min(...plausible, frames[peakIndex].timeMs),
+    latestPlausibleMs: Math.max(...plausible, frames[peakIndex].timeMs),
+  }
 }
 
 function angularDifference(a: number, b: number): number {
@@ -283,6 +302,9 @@ function measurementContract(key: string): Pick<Measurement, 'sourceKind' | 'sup
   }
   if (['shaft_position', 'swing_plane', 'wrist_position'].includes(key)) {
     return { sourceKind: key === 'wrist_position' ? 'pose-2d' : 'club-tracker', supportedViews: ['face-on', 'down-the-line'], validityRequirements: ['A validated club/hand detector', 'Low motion blur', 'Club visible through the relevant phase'] }
+  }
+  if (key === 'finish_balance') {
+    return { sourceKind: 'pose-2d', supportedViews: ['face-on'], validityRequirements: ['Confident face-on camera view', 'Both feet and pelvis visible at finish', 'Stable camera framing'] }
   }
   return { sourceKind: 'pose-2d', supportedViews: ['face-on', 'down-the-line'], validityRequirements: ['Relevant joints visible', 'Full golfer remains in frame', 'Stable camera framing'] }
 }

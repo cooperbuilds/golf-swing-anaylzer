@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowLeft, Camera, CheckCircle2, Layers3, MapPin, Video 
 import type { AnalysisSession, SessionFindingSupport } from '../domain/types'
 import { ConfidenceBadge } from './ConfidenceBadge'
 import { AnalysisWorkspace } from './AnalysisWorkspace'
+import { SessionEvidenceInspector } from './SessionEvidenceInspector'
 
 interface SessionWorkspaceProps {
   session: AnalysisSession
@@ -62,6 +63,7 @@ export function SessionWorkspace({ session, videoUrls, onBack }: SessionWorkspac
       {active ? <AnalysisWorkspace key={active.id} analysis={active} videoUrl={videoUrls[active.id] ?? null} onBack={onBack} seekRequest={seekRequest?.analysisId === active.id ? seekRequest : undefined} embedded /> : null}
 
       <section className="warnings-panel session-warnings"><span>Session limits</span>{session.warnings.map((warning) => <p key={warning}>{warning}</p>)}</section>
+      {import.meta.env.DEV && session.evidenceDiagnostics?.length ? <SessionEvidenceInspector diagnostics={session.evidenceDiagnostics} /> : null}
     </main>
   )
 }

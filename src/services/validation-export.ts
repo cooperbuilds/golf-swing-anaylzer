@@ -31,6 +31,7 @@ export function buildValidationCase(analysis: AnalysisResult) {
         drillMapping: drill,
       }
     }),
+    evidenceDiagnostics: analysis.evidenceDiagnostics ?? [],
     strengths: (analysis.strengths ?? []).map((strength) => ({
       ...strength,
       validationStatus: 'not-yet-coach-validated',

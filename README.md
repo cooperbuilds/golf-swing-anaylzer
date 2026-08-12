@@ -27,6 +27,12 @@ npm run check
 npm run test:validation
 ```
 
+## Developer evidence inspector
+
+Development builds (`npm run dev`) show a rule-by-rule evidence inspector below each individual analysis and a separate session aggregation inspector. They report measurement confidence/support, camera and phase contracts, materiality, candidate confidence, ranking, and the exact first rejection reason. These panels are gated by `import.meta.env.DEV`; production builds do not contain the inspector labels or expose them in the normal coaching UI.
+
+Analyzer cache namespace `v2` intentionally reprocesses videos cached before the evidence diagnostics and swing-window measurement fixes. Existing history remains readable.
+
 ## Optional AI coaching endpoint
 
 Measurements, comparisons, ranking, and drills are always deterministic. To add model-written phrasing, set `VITE_COACH_ENDPOINT` to a protected server endpoint. Never expose an AI provider key in a Vite/browser environment variable. The endpoint receives the guarded payload from `src/core/coaching.ts` and returns:

@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { Finding } from '../domain/types'
+import { PHASE_NAMES, type Finding, type Measurement } from '../domain/types'
+import { diagnoseFindings } from '../core/issue-ranking'
 import { createCoachNarrative } from '../services/ai-coach'
 import { IssuePanel } from './IssuePanel'
+import { EvidenceInspector } from './EvidenceInspector'
 
 const finding: Finding = {
   id: 'tempo-outlier',
@@ -41,5 +43,19 @@ describe('analysis-screen readiness', () => {
     })
     expect(narrative.mode).toBe('deterministic-fallback')
     expect(narrative.overview).toContain('Start with')
+  })
+
+  it('shows exact developer evidence-gate failures', () => {
+    const head: Measurement = {
+      key: 'head_movement', label: 'Head movement', phase: 'Whole swing', value: .4, unit: 'torso-lengths', confidence: .9,
+      reliability: 'available', frameMs: 600, observedFrom: 'test', supportedViews: ['face-on'],
+      support: { sampleCount: 20, temporalCoverage: 1, landmarkVisibility: .9 },
+    }
+    const phases = PHASE_NAMES.map((name, index) => ({ name, startMs: index * 100, endMs: (index + 1) * 100, anchorMs: index * 100 + 50, confidence: .8, detection: ['Address', 'Top', 'Impact', 'Finish'].includes(name) ? 'kinematic' as const : 'interpolated' as const }))
+    const diagnostics = diagnoseFindings([head], [], phases, 'face-on').diagnostics
+    render(<EvidenceInspector diagnostics={diagnostics} />)
+    expect(screen.getByText('Evidence inspector')).toBeTruthy()
+    expect(screen.getByText(/Materiality score 0.89 is below 1.00/)).toBeTruthy()
+    expect(screen.getAllByText('withheld').length).toBeGreaterThan(0)
   })
 })

@@ -79,6 +79,24 @@ describe('deterministic swing core', () => {
     expect(top.anchorMs).toBeLessThan(impact.anchorMs)
   })
 
+  it('does not mistake a hands-below-pelvis setup motion for the backswing top', () => {
+    const frames = Array.from({ length: 150 }, (_, index) => {
+      if (index >= 60) {
+        const source = frame(index - 60, 90)
+        return { ...source, frameIndex: index, timeMs: index * 33.333 }
+      }
+      const source = frame(0)
+      const excursion = Math.sin(index / 59 * Math.PI)
+      source.landmarks[LANDMARK.leftElbow].y = .46 - excursion * .3
+      source.landmarks[LANDMARK.rightElbow].y = .46 - excursion * .3
+      source.landmarks[LANDMARK.leftWrist].y = .72
+      source.landmarks[LANDMARK.rightWrist].y = .72
+      return { ...source, frameIndex: index, timeMs: index * 33.333 }
+    })
+    const phases = segmentSwing(frames, 5000)
+    expect(phases.find((item) => item.name === 'Top')!.anchorMs).toBeGreaterThan(2500)
+  })
+
   it('withholds club, wrist, and handedness-dependent measurements', () => {
     const frames = Array.from({ length: 90 }, (_, index) => frame(index))
     const phases = segmentSwing(frames, 3000)
@@ -87,6 +105,29 @@ describe('deterministic swing core', () => {
     expect(measurements.find((item) => item.key === 'lead_arm')?.reliability).toBe('unavailable')
     const club = clubMeasurements({ status: 'unavailable', confidence: .2, method: 'contrast-line-tracker-v1', frames: [], coverage: 0, note: 'not stable' }, phases, 'down-the-line')
     expect(club.every((item) => item.reliability === 'unavailable')).toBe(true)
+  })
+
+  it('excludes follow-through and post-swing motion from head displacement', () => {
+    const frames = Array.from({ length: 50 }, (_, index) => {
+      const source = frame(index, 50)
+      source.timeMs = index * 100
+      source.landmarks[LANDMARK.nose].x = index <= 30 ? .5 + index * .001 : .9
+      return source
+    })
+    const phases = validatedPhases().map((phase, index) => ({ ...phase, anchorMs: [1000, 1400, 1800, 2000, 2100, 2500, 3000, 3800, 4000][index] }))
+    const measurements = extractMeasurements(frames, phases, 'face-on', .9)
+    const head = measurements.find((item) => item.key === 'head_movement')!
+    expect(head.value).not.toBeNull()
+    expect(head.value!).toBeLessThan(.2)
+    expect(head.observedFrom).toContain('Address-to-impact')
+  })
+
+  it('withholds the centered-finish screen outside a face-on view', () => {
+    const frames = Array.from({ length: 90 }, (_, index) => frame(index))
+    const phases = segmentSwing(frames, 3000)
+    const finish = extractMeasurements(frames, phases, 'down-the-line', .9).find((item) => item.key === 'finish_balance')!
+    expect(finish.reliability).toBe('unavailable')
+    expect(finish.limitation).toContain('face-on')
   })
 
   it('uses GolfDB only for metrics that exist in the catalog', () => {

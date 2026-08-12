@@ -10,6 +10,7 @@ import { MeasurementsPanel } from './MeasurementsPanel'
 import { PhaseTimeline } from './PhaseTimeline'
 import { ProgressComparison } from './ProgressComparison'
 import { ProComparison } from './ProComparison'
+import { EvidenceInspector } from './EvidenceInspector'
 import { QualityPanel } from './QualityPanel'
 import { StrengthsPanel } from './StrengthsPanel'
 import { SwingSummary } from './SwingSummary'
@@ -74,6 +75,7 @@ export function AnalysisWorkspace({ analysis, previous, videoUrl, onBack, embedd
       <KeyframeStrip phases={analysis.phases} poseFrames={analysis.poseFrames} currentMs={currentMs} onSeek={setCurrentMs} />
       <ProComparison analysis={analysis} previous={previous} onSeek={setCurrentMs} />
       <ProgressComparison analysis={analysis} />
+      {import.meta.env.DEV && analysis.evidenceDiagnostics ? <EvidenceInspector diagnostics={analysis.evidenceDiagnostics} /> : null}
 
       <div className="analysis-lower-grid">
         <MeasurementsPanel analysis={analysis} />

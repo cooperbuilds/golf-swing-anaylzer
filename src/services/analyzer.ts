@@ -1,7 +1,7 @@
 import { mean } from '../core/geometry'
 import { dynamicTimeWarping, poseSequence } from '../core/dtw'
 import { extractMeasurements } from '../core/feature-extraction'
-import { rankFindings } from '../core/issue-ranking'
+import { diagnoseFindings } from '../core/issue-ranking'
 import { buildPhaseComparisons } from '../core/phase-reference'
 import { segmentSwing } from '../core/phase-segmentation'
 import { compareToReferences, referenceCoverage } from '../core/reference-comparison'
@@ -39,7 +39,8 @@ export async function analyzeSwing(
     const comparisons = compareToReferences(measurements, comparisonView)
     const coverage = referenceCoverage(measurements, comparisons)
     onProgress({ stage: 'coaching', percent: 92, message: 'Ranking the highest-confidence coaching priorities' })
-    const findings = quality.suitable ? rankFindings(measurements, comparisons, phases, comparisonView) : []
+    const diagnosis = diagnoseFindings(measurements, comparisons, phases, comparisonView, quality.suitable)
+    const findings = diagnosis.findings
     const poseConfidence = poseFrames.length > 0 ? mean(poseFrames.map((frame) => frame.meanVisibility)) : 0
     const phaseConfidence = mean(phases.map((phase) => phase.confidence))
     const measurementConfidence = mean(measurements.filter((measurement) => measurement.value !== null).map((measurement) => measurement.confidence)) || 0
@@ -69,6 +70,7 @@ export async function analyzeSwing(
       measurements,
       comparisons,
       findings,
+      evidenceDiagnostics: diagnosis.diagnostics,
       strengths,
       overallSummary,
       phaseComparisons,

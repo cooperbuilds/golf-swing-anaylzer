@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { PHASE_NAMES, type AnalysisResult, type CameraView, type Finding, type Measurement, type SessionVideoObservation } from '../domain/types'
+import { PHASE_NAMES, type AnalysisResult, type CameraView, type EvidenceRuleDiagnostic, type Finding, type Measurement, type SessionVideoObservation } from '../domain/types'
+import { diagnoseFindings } from './issue-ranking'
 import { buildAnalysisSession, sessionIdentity } from './session-aggregation'
 
 function finding(id = 'posture', confidence = .8, evidenceCount = 1): Finding {
@@ -14,7 +15,7 @@ function measurement(key: string, confidence: number, reliability: Measurement['
   return { key, label: key, phase: 'Impact', value: reliability === 'unavailable' ? null : .3, unit: 'normalized', confidence, reliability, frameMs: 620, observedFrom: 'test', supportedViews: ['face-on', 'down-the-line'] }
 }
 
-function analysis(id: string, view: CameraView, options: { confidence?: number; cameraConfidence?: number; findings?: Finding[]; measurements?: Measurement[]; timingShift?: number } = {}): AnalysisResult {
+function analysis(id: string, view: CameraView, options: { confidence?: number; cameraConfidence?: number; findings?: Finding[]; measurements?: Measurement[]; timingShift?: number; diagnostics?: EvidenceRuleDiagnostic[] } = {}): AnalysisResult {
   const timingShift = options.timingShift ?? 0
   return {
     schemaVersion: 2, id, createdAt: '2026-08-11T00:00:00.000Z', source: 'measured',
@@ -22,6 +23,7 @@ function analysis(id: string, view: CameraView, options: { confidence?: number; 
     quality: { suitable: true, score: .85, cameraView: view, cameraConfidence: options.cameraConfidence ?? .9, factors: [], guidance: [] },
     phases: PHASE_NAMES.map((name, index) => ({ name, startMs: index * 100, endMs: (index + 1) * 100, anchorMs: 100 + index * 100 + timingShift, confidence: .85, detection: ['Address', 'Top', 'Impact', 'Finish'].includes(name) ? 'kinematic' : 'interpolated' })),
     poseFrames: [], measurements: options.measurements ?? [], comparisons: [], findings: options.findings ?? [finding('posture', options.confidence ?? .8)], strengths: [],
+    evidenceDiagnostics: options.diagnostics,
     similarity: { available: false, score: null, referenceCount: 0, method: 'unavailable', note: '' }, globalConfidence: .82, referenceLabel: 'test', warnings: [],
   }
 }
@@ -72,7 +74,33 @@ describe('cross-video evidence aggregation', () => {
     const dtl = analysis('dtl', 'down-the-line', { findings: [finding('posture', .62, 3)] })
     const session = buildAnalysisSession('session', [observation(face, 1000), observation(dtl, 1010)], [face, dtl])
     expect(session.findings[0].supports).toHaveLength(2)
+    expect(session.findings[0].swingCount).toBe(1)
     expect(session.findings[0].confidence).toBeLessThan(.78)
+  })
+
+  it('promotes only persistent near-threshold evidence from the same rule and direction', () => {
+    const results = Array.from({ length: 7 }, (_, index) => {
+      const head = { ...measurement('head_movement', .9), value: index < 5 ? .4 : .1, unit: 'torso-lengths' as const, phase: 'Whole swing' as const, support: { sampleCount: 20, temporalCoverage: 1, landmarkVisibility: .9 } }
+      const diagnosis = diagnoseFindings([head], [], analysis(`template-${index}`, 'face-on').phases, 'face-on')
+      return analysis(`persistent-${index}`, 'face-on', { findings: diagnosis.findings, measurements: [head], diagnostics: diagnosis.diagnostics })
+    })
+    const session = buildAnalysisSession('session', results.map((result, index) => observation(result, index * 180_000)), results)
+    expect(session.findings).toHaveLength(1)
+    expect(session.findings[0].id).toBe('head-movement')
+    expect(session.findings[0].swingCount).toBe(5)
+    expect(session.findings[0].supports).toHaveLength(5)
+    expect(session.findings[0].confidence).toBeLessThan(.78)
+    expect(session.findings[0].aggregationNote).toContain('Repeated near-threshold evidence')
+  })
+
+  it('does not promote a near-threshold pattern below the persistence requirement', () => {
+    const results = Array.from({ length: 7 }, (_, index) => {
+      const head = { ...measurement('head_movement', .9), value: index < 4 ? .4 : .1, unit: 'torso-lengths' as const, phase: 'Whole swing' as const, support: { sampleCount: 20, temporalCoverage: 1, landmarkVisibility: .9 } }
+      const diagnosis = diagnoseFindings([head], [], analysis(`template-${index}`, 'face-on').phases, 'face-on')
+      return analysis(`nonpersistent-${index}`, 'face-on', { findings: diagnosis.findings, measurements: [head], diagnostics: diagnosis.diagnostics })
+    })
+    const session = buildAnalysisSession('session', results.map((result, index) => observation(result, index * 180_000)), results)
+    expect(session.findings).toEqual([])
   })
 
   it('keeps a failed video from blocking successful independent analyses', () => {

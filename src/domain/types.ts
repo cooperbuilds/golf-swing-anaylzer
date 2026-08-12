@@ -135,6 +135,71 @@ export interface Finding {
   evidence: Evidence[]
 }
 
+export type EvidenceDiagnosticStatus = 'passed' | 'withheld' | 'not-generated'
+
+export interface EvidenceGateDiagnostic {
+  id: string
+  label: string
+  passed: boolean
+  actual: string
+  required: string
+  reason: string
+}
+
+export interface EvidenceMeasurementDiagnostic {
+  key: string
+  label: string
+  value: number | null
+  unit: Measurement['unit']
+  reliability: Reliability
+  confidence: number
+  requiredConfidence: number
+  sampleCount: number | null
+  requiredSamples: number
+  temporalCoverage: number | null
+  requiredTemporalCoverage: number
+  landmarkVisibility: number | null
+  requiredLandmarkVisibility: number
+}
+
+export interface EvidencePhaseDiagnostic {
+  phase: PhaseName
+  present: boolean
+  confidence: number | null
+  requiredConfidence: number
+  detection: PhaseSegment['detection'] | null
+  requiredDetection: PhaseSegment['detection'] | 'any'
+  passed: boolean
+}
+
+export interface EvidenceRuleDiagnostic {
+  issueId: string
+  title: string
+  status: EvidenceDiagnosticStatus
+  evidencePassed: boolean
+  materialityPassed: boolean
+  confidencePassed: boolean
+  rank: number | null
+  reason: string
+  actualCamera: CameraView
+  requiredCameras: Exclude<CameraView, 'unknown'>[]
+  requiredLandmarks: string[]
+  conclusionBoundary: string
+  measurements: EvidenceMeasurementDiagnostic[]
+  phases: EvidencePhaseDiagnostic[]
+  comparisonStatus: Comparison['status'] | 'not-required' | 'missing'
+  materialityValue: number | null
+  materialityUnit: Measurement['unit'] | 'reference-band'
+  materialityThreshold: number | null
+  materialityScore: number
+  requiredMaterialityScore: number
+  direction: string
+  candidateConfidence: number | null
+  requiredConfidence: number
+  gates: EvidenceGateDiagnostic[]
+  provisionalFinding?: Finding
+}
+
 export interface Strength {
   id: string
   title: string
@@ -209,6 +274,7 @@ export interface AnalysisResult {
   measurements: Measurement[]
   comparisons: Comparison[]
   findings: Finding[]
+  evidenceDiagnostics?: EvidenceRuleDiagnostic[]
   strengths?: Strength[]
   overallSummary?: string
   phaseComparisons?: PhaseComparison[]
@@ -266,6 +332,23 @@ export interface SessionFinding extends Finding {
   aggregationNote: string
 }
 
+export interface SessionEvidenceDiagnostic {
+  issueId: string
+  title: string
+  direction: string
+  status: 'passed' | 'withheld'
+  reason: string
+  eligibleSwingCount: number
+  supportingSwingCount: number
+  supportingVideoCount: number
+  persistence: number
+  requiredPersistence: number
+  medianMateriality: number
+  requiredMedianMateriality: number
+  confidence: number | null
+  confidenceCap: number
+}
+
 export interface SessionMeasurement {
   measurement: Measurement
   analysisId: string
@@ -283,6 +366,7 @@ export interface AnalysisSession {
   analyses: AnalysisResult[]
   relations: SwingRelation[]
   findings: SessionFinding[]
+  evidenceDiagnostics?: SessionEvidenceDiagnostic[]
   bestMeasurements: SessionMeasurement[]
   overallSummary: string
   globalConfidence: number

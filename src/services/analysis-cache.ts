@@ -3,9 +3,11 @@ import { isAnalysisSession, type AnalysisResult, type AnalysisSession, type Hist
 import { migrateAnalysis, migrateSession } from './analysis-migration'
 
 const HISTORY_KEY = 'swinglab:history:v1'
-const CACHE_PREFIX = 'swinglab:analysis:v1:'
+// v2 invalidates cached analyses produced before rule-level diagnostics and
+// swing-window measurement fixes. Content fingerprints remain stable.
+const CACHE_PREFIX = 'swinglab:analysis:v2:'
 const SESSION_HISTORY_KEY = 'swinglab:session-history:v1'
-const SESSION_CACHE_PREFIX = 'swinglab:session:v1:'
+const SESSION_CACHE_PREFIX = 'swinglab:session:v2:'
 const MAX_HISTORY = 20
 
 export async function fileFingerprint(file: File): Promise<string> {

@@ -77,6 +77,12 @@ function findTopIndex(frames: PoseFrame[], fallbackStart: number, fallbackEnd: n
   for (let index = 1; index <= latestCandidate; index += 1) {
     const current = topPoint(frames[index])
     if (current.visibility < 0.35) continue
+    const hip = midpoint(frames[index].landmarks[LANDMARK.leftHip], frames[index].landmarks[LANDMARK.rightHip])
+    const hands = handPoint(frames[index])
+    // A golf backswing top has the hands above the pelvis. Without this
+    // anatomical sanity check, bending to place or retrieve a ball can create
+    // the first large elbow excursion and be mistaken for a complete swing.
+    if (hands.visibility < 0.35 || hands.y >= hip.y) continue
     const beforeStart = indexAtOrAfter(frames, 0, frames[index].timeMs - 2_000)
     const afterEnd = indexAtOrBefore(frames, index, frames[index].timeMs + 1_600)
     if (beforeStart >= index || afterEnd <= index) continue
