@@ -16,6 +16,10 @@ export async function detectPoseFrames(
   onProgress: (completed: number, total: number) => void,
 ): Promise<PoseFrame[]> {
   const landmarker = await getLandmarker()
+  // VIDEO mode requires timestamps to increase for the lifetime of its graph.
+  // Rebuild the graph before each file so a new video's 0ms timestamp and
+  // tracking state cannot be rejected as a continuation of the previous file.
+  await landmarker.setOptions({ runningMode: 'VIDEO' })
   const targetRate = durationMs <= 12_000 ? 15 : 10
   const total = Math.max(36, Math.min(480, Math.round(durationMs / 1000 * targetRate)))
   const frames: PoseFrame[] = []
